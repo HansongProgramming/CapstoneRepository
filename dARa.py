@@ -13,6 +13,8 @@ def mouse_callback(event, x, y, flags, param):
     global pan_offset_x, pan_offset_y, zoom_scale, drag_start_x, drag_start_y, dragging
     
     if event == cv2.EVENT_MOUSEWHEEL:  # Zooming with mouse wheel
+        zoom_center_x, zoom_center_y = x, y
+        
         if flags > 0:  # Scroll up -> Zoom in
             zoom_scale = min(zoom_scale * 1.1, 10)
         else:  # Scroll down -> Zoom out
@@ -86,7 +88,6 @@ for i, cnt in enumerate(contours):
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
 
 # OPTIONAL: Draw lines between the main bloodstain and its satellite stains on the "image_with_lines"
-# Assumption: The largest contour is the main bloodstain, and the others are satellite stains
 if contours:
     # Find the largest contour (assumed to be the main stain)
     main_stain = max(contours, key=cv2.contourArea)
@@ -95,7 +96,7 @@ if contours:
     M_main = cv2.moments(main_stain)
     cx_main = int(M_main["m10"] / M_main["m00"])
     cy_main = int(M_main["m01"] / M_main["m00"])
-    a
+
     # Draw paths (lines) between the main stain and satellite stains on "image_with_lines"
     for cnt in contours:
         if cnt is not main_stain:  # Satellite stains
@@ -109,16 +110,22 @@ if contours:
 # Function to apply zoom and pan
 def apply_zoom_and_pan(img):
     h, w = img.shape[:2]
-    center_x, center_y = w // 2, h // 2
+    
+    # Calculate new size based on zoom scale
+    new_w = int(w * zoom_scale)
+    new_h = int(h * zoom_scale)
+    
+    # Resize image according to the zoom scale
+    zoomed_image = cv2.resize(img, (new_w, new_h))
+    
+    # Calculate offsets for panning within image bounds
+    max_x_offset = max(0, new_w - w)
+    max_y_offset = max(0, new_h - h)
+    offset_x = min(max(pan_offset_x, -max_x_offset), max_x_offset)
+    offset_y = min(max(pan_offset_y, -max_y_offset), max_y_offset)
 
-    # Calculate new size and offsets
-    new_w, new_h = int(w * zoom_scale), int(h * zoom_scale)
-    offset_x = center_x - new_w // 2 + pan_offset_x
-    offset_y = center_y - new_h // 2 + pan_offset_y
-
-    # Apply zooming and panning
-    zoomed_and_panned = cv2.resize(img, (new_w, new_h))
-    return zoomed_and_panned[max(0, offset_y):min(new_h, h+offset_y), max(0, offset_x):min(new_w, w+offset_x)]
+    # Crop the image based on the panned offset
+    return zoomed_image[max(0, offset_y):min(new_h, h + offset_y), max(0, offset_x):min(new_w, w + offset_x)]
 
 # Layer switching
 layers = ["Original", "Satellite Points", "Lines"]
@@ -146,9 +153,5 @@ while True:
     # Toggle layer with spacebar
     elif key == ord(' '):
         current_layer_index = (current_layer_index + 1) % len(layers)
-
-    # Display current layer name on top
-    cv2.putText(zoomed_image, f"Layer: {layers[current_layer_index]}", (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
 cv2.destroyAllWindows()

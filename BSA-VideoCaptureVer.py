@@ -72,8 +72,8 @@ while cap.isOpened():
     cv2.imshow('Satellite Points with Blue Lines', frame_with_lines)  # Window with points and blue lines
     cv2.imshow('Original Blood Splatter', frame_original)             # Window with the original image only
 
-    # Break the loop if the user presses 'q'
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    # Break the loop if the user presses 't'
+    if cv2.waitKey(1) & 0xFF == ord('t'):
         break
 
 # Release the video capture object and close all windows
