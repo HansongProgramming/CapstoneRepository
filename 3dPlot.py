@@ -2,7 +2,7 @@ import numpy as np
 import pyvista as pv
 
 # Example bloodstain data (replace this with real data from image analysis)
-bloodstains = np.random.rand(50, 3)  # 50 bloodstains with (x, y, z) coordinates
+bloodstains = np.random.rand(5, 3)  # 5 bloodstains with (x, y, z) coordinates
 
 # Example point of convergence (replace with calculated point of origin)
 convergence_point = np.array([0.5, 0.5, 0.5])

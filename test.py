@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import math
+import pyvista as pv
 
 # Global variables for panning and zooming
 zoom_scale = 1.0
@@ -13,6 +14,8 @@ def mouse_callback(event, x, y, flags, param):
     global pan_offset_x, pan_offset_y, zoom_scale, drag_start_x, drag_start_y, dragging
     
     if event == cv2.EVENT_MOUSEWHEEL:  # Zooming with mouse wheel
+        zoom_center_x, zoom_center_y = x, y
+        
         if flags > 0:  # Scroll up -> Zoom in
             zoom_scale = min(zoom_scale * 1.1, 10)
         else:  # Scroll down -> Zoom out
@@ -51,6 +54,9 @@ _, thresh = cv2.threshold(blurred, 50, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_O
 # Find contours of the bloodstains
 contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
+# Create an empty list to store bloodstain coordinates
+bloodstain_2d = []
+
 # Loop over each contour (each detected bloodstain)
 for i, cnt in enumerate(contours):
     # Compute the center of the contour using moments
@@ -58,67 +64,37 @@ for i, cnt in enumerate(contours):
     if M["m00"] != 0:
         cx = int(M["m10"] / M["m00"])
         cy = int(M["m01"] / M["m00"])
+        
+        # Store the 2D bloodstain position (assume z = 0 for now)
+        bloodstain_2d.append((cx, cy, 0))  # 2D points with z as 0 initially
 
-        # Draw a square (tracker) at the center of each bloodstain (satellite points) on both images
+        # Draw a square (tracker) at the center of each bloodstain (satellite points)
         cv2.rectangle(image_with_satellite_points, (cx-5, cy-5), (cx+5, cy+5), color=(0, 255, 0), thickness=2)
         cv2.rectangle(image_with_lines, (cx-5, cy-5), (cx+5, cy+5), color=(0, 255, 0), thickness=2)
 
-        # Label the stains for easy identification (main vs satellite)
+        # Label the stains for easy identification
         cv2.putText(image_with_satellite_points, f"{i+1}", (cx - 10, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         cv2.putText(image_with_lines, f"{i+1}", (cx - 10, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-
-        # Fit an ellipse around the contour (if it has sufficient points)
-        if len(cnt) >= 5:
-            ellipse = cv2.fitEllipse(cnt)
-            (center, axes, angle) = ellipse
-            major_axis = max(axes)
-            minor_axis = min(axes)
-
-            # Compute the angle of impact
-            if major_axis != 0:
-                angle_of_impact = math.degrees(math.asin(minor_axis / major_axis))
-                
-                # Draw the ellipse
-                cv2.ellipse(image_with_lines, ellipse, (255, 255, 0), 2)
-
-                # Display the angle of impact near the ellipse
-                cv2.putText(image_with_lines, f"Angle: {int(angle_of_impact)}", (cx + 20, cy + 20),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
-
-# OPTIONAL: Draw lines between the main bloodstain and its satellite stains on the "image_with_lines"
-# Assumption: The largest contour is the main bloodstain, and the others are satellite stains
-if contours:
-    # Find the largest contour (assumed to be the main stain)
-    main_stain = max(contours, key=cv2.contourArea)
-    
-    # Get the center of the main stain
-    M_main = cv2.moments(main_stain)
-    cx_main = int(M_main["m10"] / M_main["m00"])
-    cy_main = int(M_main["m01"] / M_main["m00"])
-    a
-    # Draw paths (lines) between the main stain and satellite stains on "image_with_lines"
-    for cnt in contours:
-        if cnt is not main_stain:  # Satellite stains
-            M = cv2.moments(cnt)
-            if M["m00"] != 0:
-                cx = int(M["m10"] / M["m00"])
-                cy = int(M["m01"] / M["m00"])
-                # Draw a line from the main stain to each satellite stain
-                cv2.line(image_with_lines, (cx_main, cy_main), (cx, cy), color=(255, 0, 0), thickness=2)
 
 # Function to apply zoom and pan
 def apply_zoom_and_pan(img):
     h, w = img.shape[:2]
-    center_x, center_y = w // 2, h // 2
+    
+    # Calculate new size based on zoom scale
+    new_w = int(w * zoom_scale)
+    new_h = int(h * zoom_scale)
+    
+    # Resize image according to the zoom scale
+    zoomed_image = cv2.resize(img, (new_w, new_h))
+    
+    # Calculate offsets for panning within image bounds
+    max_x_offset = max(0, new_w - w)
+    max_y_offset = max(0, new_h - h)
+    offset_x = min(max(pan_offset_x, -max_x_offset), max_x_offset)
+    offset_y = min(max(pan_offset_y, -max_y_offset), max_y_offset)
 
-    # Calculate new size and offsets
-    new_w, new_h = int(w * zoom_scale), int(h * zoom_scale)
-    offset_x = center_x - new_w // 2 + pan_offset_x
-    offset_y = center_y - new_h // 2 + pan_offset_y
-
-    # Apply zooming and panning
-    zoomed_and_panned = cv2.resize(img, (new_w, new_h))
-    return zoomed_and_panned[max(0, offset_y):min(new_h, h+offset_y), max(0, offset_x):min(new_w, w+offset_x)]
+    # Crop the image based on the panned offset
+    return zoomed_image[max(0, offset_y):min(new_h, h + offset_y), max(0, offset_x):min(new_w, w + offset_x)]
 
 # Layer switching
 layers = ["Original", "Satellite Points", "Lines"]
@@ -147,8 +123,38 @@ while True:
     elif key == ord(' '):
         current_layer_index = (current_layer_index + 1) % len(layers)
 
-    # Display current layer name on top
-    cv2.putText(zoomed_image, f"Layer: {layers[current_layer_index]}", (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-
 cv2.destroyAllWindows()
+
+# ----- Part 2: 3D Visualization using PyVista -----
+
+# Now start the 3D plotting after the 2D window closes
+
+# Convert 2D data (with z=0) to a NumPy array for PyVista
+bloodstains = np.array(bloodstain_2d)
+
+# Example point of convergence (replace with calculated point of origin)
+convergence_point = np.array([0.5, 0.5, 0.5])  # Dummy example
+
+# Create a PyVista plotter object
+plotter = pv.Plotter()
+
+# Plot bloodstains as red spheres
+for stain in bloodstains:
+    sphere = pv.Sphere(radius=0.02, center=stain)  # Radius controls the size of the sphere
+    plotter.add_mesh(sphere, color='red', label='Blood Stains')
+
+# Plot the point of convergence as a larger blue sphere
+convergence_sphere = pv.Sphere(radius=0.05, center=convergence_point)
+plotter.add_mesh(convergence_sphere, color='blue', label='Point of Convergence')
+
+# Optionally, plot lines from each bloodstain to the point of convergence
+for stain in bloodstains:
+    line = pv.Line(stain, convergence_point)
+    plotter.add_mesh(line, color='gray', line_width=2, opacity=0.5)
+
+# Add axes and labels
+plotter.add_axes()
+plotter.show_bounds(grid='back', location="outer", all_edges=True)
+
+# Display the 3D plot
+plotter.show()
